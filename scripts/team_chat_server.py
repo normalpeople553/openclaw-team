@@ -13,7 +13,7 @@ import base64
 import secrets
 import socket
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, session, make_response
+from flask import Flask, request, jsonify, render_template_string, session, make_response, send_from_directory
 from flask_cors import CORS
 import requests
 from cryptography.fernet import Fernet
@@ -262,6 +262,9 @@ HTML = '''
         }
         .chat-input input { margin-bottom: 0; }
         .chat-input button { width: auto; padding: 14px 24px; margin-bottom: 0; }
+        .file-btn { background: #1a1a2e; color: #888; font-size: 18px; padding: 10px; }
+        .file-btn:hover { background: #2a2a4e; color: #fff; }
+        .file-btn.has-file { color: #4ade80; }
         
         #authScreen button {
             width: 100%;
@@ -321,14 +324,11 @@ HTML = '''
             
             <!-- 聊天页面 -->
             <div id="chatScreen" class="hidden">
-                <div class="user-info">
-                    <span id="welcomeMsg">你好！</span>
-                    <button class="logout-btn" onclick="logout()">退出登录</button>
-                </div>
                 <div class="chat-messages" id="chatMessages">
-                    <div class="message system">发送消息开始聊天~</div>
                 </div>
                 <div class="chat-input">
+                    <input type="file" id="fileInput" style="display: none;">
+                    <button class="file-btn" onclick="document.getElementById('fileInput').click()" title="上传文件">📎</button>
                     <input type="text" id="chatInput" placeholder="输入消息..." onkeypress="if(event.key==='Enter')sendMessage()">
                     <button onclick="sendMessage()">发送</button>
                 </div>
@@ -508,16 +508,62 @@ HTML = '''
             document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
         }
 
-        function sendMessage() {
+        // 文件上传处理
+        let selectedFile = null;
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                selectedFile = e.target.files[0];
+                document.querySelector('.file-btn').classList.add('has-file');
+                addMessage('system', '📎 已选择文件: ' + selectedFile.name);
+            }
+        });
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('username', currentUser.username);
+            formData.append('password', currentUser.password);
+            formData.append('file', file);
+            
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+            return response.json();
+        }
+
+        async function sendMessage() {
             if (!currentUser) return;
             
             const input = document.getElementById('chatInput');
-            const content = input.value.trim();
-            if (!content) return;
+            let content = input.value.trim();
             
-            input.value = '';
-            addMessage('user', content);
-            document.getElementById('chatLoading').classList.remove('hidden');
+            // 如果有文件，先上传
+            if (selectedFile) {
+                addMessage('user', content || '[发送文件]');
+                document.getElementById('chatLoading').classList.remove('hidden');
+                
+                const uploadResult = await uploadFile(selectedFile);
+                
+                if (uploadResult.success) {
+                    // 不发送给 AI，只告诉用户文件已下载
+                    document.getElementById('chatLoading').classList.add('hidden');
+                    addMessage('system', '✅ 文件已保存到服务器: ' + selectedFile.name + '\n📁 路径: ' + uploadResult.path + '\n\n您想对它做什么？');
+                } else {
+                    document.getElementById('chatLoading').classList.add('hidden');
+                    addMessage('system', '❌ 文件上传失败: ' + uploadResult.error);
+                }
+                
+                selectedFile = null;
+                document.querySelector('.file-btn').classList.remove('has-file');
+                document.getElementById('fileInput').value = '';
+                return;
+            } else if (!content) {
+                return;
+            } else {
+                input.value = '';
+                addMessage('user', content);
+                document.getElementById('chatLoading').classList.remove('hidden');
+            }
             
             fetch('/api/chat', {
                 method: 'POST',
@@ -748,6 +794,72 @@ def chat():
     except Exception as e:
         print(f"【转发消息】❌ 异常: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    """文件上传 API - 需要登录"""
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    
+    if not username or not password:
+        return jsonify({"error": "需要登录才能上传文件"}), 401
+    
+    # 验证用户
+    user_dir = os.path.join(DATA_DIR, username)
+    cred_file = os.path.join(user_dir, CREDENTIAL_FILE)
+    
+    if not os.path.exists(cred_file):
+        return jsonify({"error": "用户不存在"}), 401
+    
+    try:
+        with open(cred_file, 'r') as f:
+            encrypted = f.read()
+        cipher = Fernet(generate_key(password))
+        decrypted = cipher.decrypt(encrypted.encode())
+        if not decrypted.decode().startswith("OPENCLAW_USER:" + username):
+            return jsonify({"error": "验证失败"}), 401
+    except Exception:
+        return jsonify({"error": "验证失败"}), 401
+    
+    # 检查是否有文件
+    if 'file' not in request.files:
+        return jsonify({"error": "没有文件"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "文件名不能为空"}), 400
+    
+    # 保存文件
+    user_uploads_dir = os.path.join(user_dir, "uploads")
+    os.makedirs(user_uploads_dir, exist_ok=True)
+    
+    # 生成唯一文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_filename = f"{timestamp}_{file.filename}"
+    file_path = os.path.join(user_uploads_dir, safe_filename)
+    
+    file.save(file_path)
+    
+    # 返回文件 URL
+    file_url = f"http://{LOCAL_IP}:{PORT}/uploads/{username}/{safe_filename}"
+    print(f"📎 {username} 上传了文件: {file.filename} -> {safe_filename}")
+    
+    return jsonify({
+        "success": True,
+        "filename": safe_filename,
+        "url": file_url,
+        "path": file_path
+    })
+
+
+@app.route('/uploads/<username>/<filename>')
+def serve_upload(username, filename):
+    """提供用户上传的文件"""
+    file_path = os.path.join(DATA_DIR, username, "uploads", filename)
+    if os.path.exists(file_path):
+        return send_from_directory(os.path.join(DATA_DIR, username, "uploads"), filename)
+    return "File not found", 404
 
 
 if __name__ == '__main__':

@@ -75,33 +75,61 @@ AI 助手不会执行任何删除他人数据的指令。
 
 ## 快速开始
 
+### 方式 1: 使用启动脚本（推荐）
+
+```bash
+# 一键启动（自动创建虚拟环境、安装依赖、启动服务）
+./start.sh
+```
+
+### 方式 2: 手动启动
+
 ```bash
 # 1. 安装依赖
-pip install flask flask-cors cryptography requests gunicorn
+pip install -r requirements.txt
 
-# 2. 启动服务器
-gunicorn -w 4 -b 0.0.0.0:8888 team_chat_server:app
+# 2. 启动服务器（使用 main.py）
+cd scripts
+python3 main.py
+
+# 或使用 gunicorn（推荐生产环境）
+gunicorn -w 4 -b 0.0.0.0:8888 main:app
 ```
 
 访问: `http://<你的IP>:8888`
 
-默认邀请码: `OPENCLAW2026`
+默认邀请码: `OPENCLAW2026`  
+默认品牌名: `OPENCLAW-TEAM`
 
-## 自定义邀请码
+## 自定义配置
+
+### 方式 1: 环境变量
 
 ```bash
-# 方式1: 环境变量
-INVITE_CODE=你的邀请码 gunicorn -w 4 -b 0.0.0.0:8888 team_chat_server:app
+# 自定义邀请码和品牌名称
+INVITE_CODE=你的邀请码 BRAND_NAME=你的品牌名 python3 main.py
 
-# 方式2: 直接修改代码中的 INVITE_CODE 常量
+# 使用 gunicorn
+INVITE_CODE=你的邀请码 BRAND_NAME=你的品牌名 gunicorn -w 4 -b 0.0.0.0:8888 main:app
 ```
+
+### 方式 2: 修改代码
+
+直接编辑 `scripts/main.py` 中的配置常量：
+- `INVITE_CODE`: 注册邀请码
+- `BRAND_NAME`: 品牌名称（显示在界面上）
+- `PORT`: 服务器端口
+- `DATA_DIR`: 数据存储目录
+- `GATEWAY_URL`: OpenClaw Gateway API 地址
+- `GATEWAY_TOKEN`: Gateway 认证令牌
 
 ## 配置
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | PORT | 8888 | 服务器端口 |
-| INVITE_CODE | OPENCLAW2026 | 注册邀请码 |
+| INVITE_CODE | OPENCLAW2026 | 注册邀请码（环境变量可自定义） |
+| BRAND_NAME | OPENCLAW-TEAM | 品牌名称（环境变量可自定义） |
 | DATA_DIR | ~/Desktop/alldata | 数据存储目录 |
 | GATEWAY_URL | http://127.0.0.1:18789 | OpenClaw Gateway API |
 | GATEWAY_TOKEN | (配置中获取) | Gateway 认证令牌 |
@@ -121,6 +149,31 @@ INVITE_CODE=你的邀请码 gunicorn -w 4 -b 0.0.0.0:8888 team_chat_server:app
 - Cryptography (Fernet/AES-256)
 - 零知识认证架构
 - PBKDF2 密钥派生
+
+## 项目结构
+
+```
+openclaw-team/
+├── scripts/
+│   ├── main.py              # 主服务器文件（推荐使用）
+│   ├── index.html           # 前端界面
+│   ├── upload.py            # 文件上传模块
+│   └── team_chat_server.py  # 独立完整版（备用）
+├── requirements.txt         # Python 依赖
+├── start.sh                # 一键启动脚本
+├── .env.example            # 环境变量示例
+├── .gitignore              # Git 忽略配置
+├── README.md               # 项目文档
+├── SKILL.md                # Skill 描述
+└── license.txt             # 许可证
+```
+
+## 文件说明
+
+- **main.py**: 模块化主服务器，使用独立的 HTML 文件和 upload 模块
+- **index.html**: 白色极简风格前端界面
+- **upload.py**: 文件上传功能模块
+- **team_chat_server.py**: 独立完整版服务器（所有代码在一个文件，备用）
 
 ## 许可证
 
