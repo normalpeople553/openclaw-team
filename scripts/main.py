@@ -148,6 +148,48 @@ def login():
     
     return jsonify({"success": False, "error": "密码错误"}), 401
 
+@app.route('/api/history', methods=['POST'])
+def get_history():
+    """获取聊天历史"""
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    if not username:
+        return jsonify({"error": "用户名为空"}), 400
+    
+    # 验证用户
+    user_dir = os.path.join(DATA_DIR, username)
+    cred_file = os.path.join(user_dir, CREDENTIAL_FILE)
+    
+    if not os.path.exists(cred_file):
+        return jsonify({"error": "用户不存在"}), 401
+    
+    try:
+        with open(cred_file, 'r') as f:
+            encrypted = f.read()
+        cipher = Fernet(generate_key(password))
+        decrypted = cipher.decrypt(encrypted.encode())
+        if not decrypted.decode().startswith("OPENCLAW_USER:" + username):
+            return jsonify({"error": "验证失败"}), 401
+    except:
+        return jsonify({"error": "验证失败"}), 401
+    
+    # 获取历史
+    history = []
+    history_file = os.path.join(user_dir, "history.enc")
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r') as f:
+                content = f.read()
+            if content:
+                decrypted = decrypt_data(content, password)
+                history = json.loads(decrypted)
+        except:
+            pass
+    
+    return jsonify({"success": True, "history": history})
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.get_json()
@@ -182,35 +224,48 @@ def chat():
         try:
             with open(history_file, 'r') as f:
                 decrypted = decrypt_data(f.read(), password)
-            history = eval(decrypted)
+            history = json.loads(decrypted)
         except:
             pass
     
-    messages = [{"role": "user", "content": msg["content"]} for msg in history]
+    messages = []
+    for msg in history:
+        role = msg.get("role")
+        content = msg.get("content")
+        if role in ["user", "assistant", "system"] and isinstance(content, str):
+            messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_message})
+
+    payload = {"model": "openclaw:main", "messages": messages, "stream": False}
+    print("=== gateway payload ===")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     
     # 调用 API
     try:
         response = requests.post(
             f"{GATEWAY_URL}/v1/chat/completions",
             headers={"Authorization": f"Bearer {GATEWAY_TOKEN}", "Content-Type": "application/json"},
-            json={"model": "openclaw:main", "messages": messages, "stream": False},
+            json=payload,
             timeout=120
         )
+        print("=== gateway response ===")
+        print(response.status_code)
+        print(response.text)
         
         if response.status_code != 200:
-            return jsonify({"error": f"API错误: {response.status_code}"}), 500
+            return jsonify({"error": f"API错误: {response.status_code}，详情: {response.text}"}), 500
         
         result = response.json()
         assistant_message = result['choices'][0]['message']['content']
         
-        # 保存历史
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": assistant_message})
+        # 保存历史（带时间戳）
+        now = datetime.now().isoformat()
+        history.append({"role": "user", "content": user_message, "timestamp": now})
+        history.append({"role": "assistant", "content": assistant_message, "timestamp": now})
         history = history[-40:]
         
         with open(history_file, 'w') as f:
-            f.write(encrypt_data(str(history), password))
+            f.write(encrypt_data(json.dumps(history, ensure_ascii=False), password))
         
         return jsonify({"response": assistant_message})
     except Exception as e:
