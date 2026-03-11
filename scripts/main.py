@@ -14,6 +14,9 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import requests
 from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # ====== 配置 ======
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://127.0.0.1:18789")
