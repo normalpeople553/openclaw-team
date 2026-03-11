@@ -199,10 +199,58 @@
             border-radius: 16px;
             word-wrap: break-word;
             word-break: break-word;
-            white-space: pre-wrap;
             line-height: 1.6;
             font-size: 15px;
             animation: slideIn 0.2s ease;
+        }
+        .message-body {
+            white-space: normal;
+        }
+        .message-body p {
+            margin: 0 0 10px;
+        }
+        .message-body p:last-child {
+            margin-bottom: 0;
+        }
+        .message-body ul,
+        .message-body ol {
+            margin: 8px 0 10px 20px;
+            padding: 0;
+        }
+        .message-body li {
+            margin: 4px 0;
+        }
+        .message-body pre {
+            margin: 10px 0;
+            padding: 12px 14px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            background: rgba(0, 0, 0, 0.92);
+            color: #f5f5f5;
+        }
+        .message-body code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+        .message-body :not(pre) > code {
+            padding: 2px 6px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.08);
+            font-size: 0.92em;
+        }
+        .message.user .message-body :not(pre) > code {
+            background: rgba(255, 255, 255, 0.18);
+            color: #fff;
+        }
+        .message-body a {
+            color: #0a66ff;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            word-break: break-all;
+        }
+        .message.user .message-body a {
+            color: #9ec5ff;
         }
         @keyframes slideIn {
             from { opacity: 0; transform: translateY(8px); }
@@ -630,13 +678,111 @@
             }
         }
         
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatMessageContent(content) {
+            let html = escapeHtml(content || '');
+            const codeBlocks = [];
+
+            html = html.replace(/```([\s\S]*?)```/g, (_, code) => {
+                const token = `@@CODEBLOCK_${codeBlocks.length}@@`;
+                codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
+                return token;
+            });
+
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
+            const lines = html.split('\n');
+            const blocks = [];
+            let paragraph = [];
+            let listType = null;
+            let listItems = [];
+
+            function flushParagraph() {
+                if (paragraph.length) {
+                    blocks.push(`<p>${paragraph.join('<br>')}</p>`);
+                    paragraph = [];
+                }
+            }
+
+            function flushList() {
+                if (listItems.length) {
+                    const tag = listType === 'ol' ? 'ol' : 'ul';
+                    blocks.push(`<${tag}>${listItems.map(item => `<li>${item}</li>`).join('')}</${tag}>`);
+                    listItems = [];
+                    listType = null;
+                }
+            }
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+
+                if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
+                    flushParagraph();
+                    flushList();
+                    blocks.push(trimmed);
+                    continue;
+                }
+
+                const orderedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+                const unorderedMatch = trimmed.match(/^[-*•]\s+(.*)$/);
+
+                if (!trimmed) {
+                    flushParagraph();
+                    flushList();
+                    continue;
+                }
+
+                if (orderedMatch) {
+                    flushParagraph();
+                    if (listType !== 'ol') {
+                        flushList();
+                        listType = 'ol';
+                    }
+                    listItems.push(orderedMatch[1]);
+                    continue;
+                }
+
+                if (unorderedMatch) {
+                    flushParagraph();
+                    if (listType !== 'ul') {
+                        flushList();
+                        listType = 'ul';
+                    }
+                    listItems.push(unorderedMatch[1]);
+                    continue;
+                }
+
+                flushList();
+                paragraph.push(trimmed);
+            }
+
+            flushParagraph();
+            flushList();
+
+            let result = blocks.join('');
+            codeBlocks.forEach((block, index) => {
+                result = result.replace(`@@CODEBLOCK_${index}@@`, block);
+            });
+            return result;
+        }
+
         function addMessage(type, content, timestamp = null) {
             const div = document.createElement('div');
             div.className = 'message ' + type;
             
-            const contentSpan = document.createElement('span');
-            contentSpan.textContent = content;
-            div.appendChild(contentSpan);
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-body';
+            contentDiv.innerHTML = formatMessageContent(content);
+            div.appendChild(contentDiv);
             
             // 添加时间戳（系统消息除外）
             if (type !== 'system') {
