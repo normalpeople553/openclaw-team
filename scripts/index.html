@@ -187,11 +187,10 @@
             width: 100%;
             margin: 0 auto;
         }
-        .chat-messages::-webkit-scrollbar { width: 4px; }
-        .chat-messages::-webkit-scrollbar-track { background: transparent; }
-        .chat-messages::-webkit-scrollbar-thumb { 
-            background: #e5e5e5;
-            border-radius: 2px;
+        .chat-messages::-webkit-scrollbar { width: 0; display: none; }
+        .chat-messages { 
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE/Edge */
         }
         .message { 
             max-width: 75%;

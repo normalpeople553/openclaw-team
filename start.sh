@@ -16,12 +16,12 @@ source venv/bin/activate
 
 # 安装依赖
 echo "📥 安装依赖..."
-pip install -q -r requirements.txt
+pip install -q -r scripts/requirements.txt
 
-# 加载环境变量（如果存在 .env 文件）
-if [ -f .env ]; then
+# 加载环境变量（如果存在 scripts/.env 文件）
+if [ -f scripts/.env ]; then
     echo "🔧 加载环境变量..."
-    export $(cat .env | grep -v '^#' | xargs)
+    export $(cat scripts/.env | grep -v '^#' | xargs)
 fi
 
 # 启动服务器

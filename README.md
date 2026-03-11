@@ -1,290 +1,170 @@
-# OpenClaw Team - 零知识团队协作服务器
+# OpenClaw Team
 
-[English version below]
+一个给 OpenClaw 做多人访问包装的轻量 Web 项目。
 
-## 背景
+目标不是把 OpenClaw 改造成多租户平台，而是在一台机器上提供一个简单的团队入口：
+- 多个用户可通过网页访问同一个“小舟”人格
+- 每个用户有自己的注册信息、聊天历史、长期记忆文件
+- 前端支持登录、注册、聊天、上传文件
+- 后端通过 OpenClaw Gateway 的兼容接口转发消息
 
-适用于部署一个 OpenClaw 实例，但可以多人共同使用——每个用户拥有独立的加密存储空间，实现真正的数据隔离。
+注意：当前版本仍然是实验性方案，适合本地/局域网测试，不适合直接作为生产级多租户系统上线。
 
-## 特性
+## 当前能力
 
-- 🔐 **零知识架构**：服务器不存储任何密码数据，用户数据只能用正确密码解密
-- 👥 **多用户数据隔离**：每个用户独立文件夹，AES-256 加密，密码即密钥
-- 📱 **跨设备访问**：支持电脑和手机通过局域网 IP 访问
-- 🛡️ **端到端加密**：所有用户数据（历史、记忆、灵魂）在传输和存储全程加密
-- 🔑 **设备绑定登录**：无需会话 Token，登录状态保存在浏览器 localStorage
-- ⚡ **轻量部署**：无需数据库，一个 Python 脚本即可运行
+- 邀请码注册
+- 用户名 + 密码登录
+- 每个用户独立数据目录
+- `history.enc`：保存最近 50 轮对话（100 条消息）
+- `memory.enc`：保存长期记忆
+- 基于密码的本地加密存储
+- 文件上传
+- 聊天消息支持更好的文本展示：
+  - 换行
+  - 有序/无序列表
+  - 行内代码
+  - 代码块
+  - 链接点击
+- 后端支持从 `scripts/.env` 读取配置
 
-## 适用场景
+## 当前数据模型
 
-- **家庭共享**：一家人共用一个 OpenClaw 实例，各自拥有独立对话历史
-- **团队协作**：小团队共享 AI 助手，每个人的数据和配置完全隔离
-- **隐私敏感**：对数据安全有要求，不想让管理员或服务器运营方看到任何用户数据
+每个用户的数据默认保存在：
 
-## 技术亮点
+`~/Desktop/alldata/<username>/`
 
-### 1. 零知识认证（Zero-Knowledge）
+目录内容大致包括：
 
-传统方案：服务器存储密码 hash，登录时比对。
+- `credential.enc`：登录验证数据
+- `config.json`：用户配置
+- `memory.enc`：长期记忆
+- `history.enc`：近期对话历史
 
-**本方案**：
-- 服务器**不存储**任何密码相关数据
-- 注册时：用密码加密生成 `credential.enc`（包含用户身份证明）
-- 登录时：服务器尝试用提交的密码解密 `credential.enc`
-- 解开 → 证明密码正确；解不开 → 登录失败
+说明：
+- 当前版本已不再要求新用户创建 `soul.enc`
+- 小舟的人格由统一提示词和系统上下文维持，而不是每个用户单独一份 soul 文件
 
-即使服务器被攻破、数据库被拖走，攻击者也无法恢复任何用户密码或解密数据。
+## 记忆与历史的当前行为
 
-### 2. 密码即密钥
+### history
+- 每次回复后写回
+- 仅保留最近 50 轮对话
+- 用于短期上下文续聊
 
-用户的密码同时用于：
-- 身份验证（解密 credential.enc）
-- 数据加密（加密 history.enc、memory.enc、soul.enc）
+### memory
+- 每个用户独立
+- 当前会在以下场景写入：
+  - 用户明确说“记住”“记一下”“帮我记住”
+  - 少量明显长期信息自动记
+- 在每次聊天时会读取并作为额外 system context 注入
 
-密码丢失 = 数据永久丢失。这是特性，不是 bug——确保了**只有用户自己**能访问自己的数据。
+## 重要限制
 
-### 3. 数据隔离
+这个项目当前最大的限制是：
 
-```
-~/Desktop/alldata/
-├── .protected          # 保护标记，防止误删
-├── alice/             # Alice 的数据
-│   ├── credential.enc
-│   ├── config.json
-│   ├── soul.enc
-│   ├── memory.enc
-│   └── history.enc
-└── bob/               # Bob 的数据
-    ├── credential.enc
-    ├── config.json
-    ├── soul.enc
-    ├── memory.enc
-    └── history.enc
-```
+虽然文件层面已经做了“每用户独立 history / memory”，但 OpenClaw Gateway 兼容接口这一层，当前仍然可能存在会话上下文共享问题。
 
-每个文件夹只能被对应密码解密，Bob 无法读取 Alice 的任何文件。
+这意味着：
+- 文件隔离 ≠ 后端会话彻底隔离
+- 现阶段已经加入了“防跨用户泄露”的 system prompt 作为缓解措施
+- 但这不是严格安全隔离
 
-### 4. 第一原则约束
+所以当前版本更准确的定位是：
 
-代码中内置安全注释：
-```python
-# ⚠️ 安全原则：禁止删除 alldata 目录下任何非用户自己的文件夹
-```
+“一个适合局域网/内测环境的多人访问原型”，
+而不是“已经完成真正多租户隔离的正式产品”。
 
-AI 助手不会执行任何删除他人数据的指令。
+## 运行方式
 
-## 快速开始
-
-### 方式 1: 使用启动脚本（推荐）
+### 方式 1：使用启动脚本
 
 ```bash
-# 一键启动（自动创建虚拟环境、安装依赖、启动服务）
 ./start.sh
 ```
 
-### 方式 2: 手动启动
+### 方式 2：手动运行
 
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-
-# 2. 启动服务器（使用 main.py）
 cd scripts
 python3 main.py
-
-# 或使用 gunicorn（推荐生产环境）
-gunicorn -w 4 -b 0.0.0.0:8888 main:app
 ```
 
-访问: `http://<你的IP>:8888`
+## 配置方式
 
-默认邀请码: `OPENCLAW2026`  
-默认品牌名: `OPENCLAW-TEAM`
+主程序会优先读取：
 
-## 自定义配置
+`scripts/.env`
 
-### 方式 1: 环境变量
+示例：
+
+```env
+GATEWAY_URL=http://127.0.0.1:18789
+GATEWAY_TOKEN=你的网关token
+PORT=8888
+INVITE_CODE=OPENCLAW2026
+BRAND_NAME=OPENCLAW-TEAM
+```
+
+## 依赖安装
+
+当前 Python 依赖位于：
+
+`scripts/requirements.txt`
+
+安装方式：
 
 ```bash
-# 自定义邀请码和品牌名称
-INVITE_CODE=你的邀请码 BRAND_NAME=你的品牌名 python3 main.py
-
-# 使用 gunicorn
-INVITE_CODE=你的邀请码 BRAND_NAME=你的品牌名 gunicorn -w 4 -b 0.0.0.0:8888 main:app
+cd scripts
+pip install -r requirements.txt
 ```
-
-### 方式 2: 修改代码
-
-直接编辑 `scripts/main.py` 中的配置常量：
-- `INVITE_CODE`: 注册邀请码
-- `BRAND_NAME`: 品牌名称（显示在界面上）
-- `PORT`: 服务器端口
-- `DATA_DIR`: 数据存储目录
-- `GATEWAY_URL`: OpenClaw Gateway API 地址
-- `GATEWAY_TOKEN`: Gateway 认证令牌
-
-## 配置
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| PORT | 8888 | 服务器端口 |
-| INVITE_CODE | OPENCLAW2026 | 注册邀请码（环境变量可自定义） |
-| BRAND_NAME | OPENCLAW-TEAM | 品牌名称（环境变量可自定义） |
-| DATA_DIR | ~/Desktop/alldata | 数据存储目录 |
-| GATEWAY_URL | http://127.0.0.1:18789 | OpenClaw Gateway API |
-| GATEWAY_TOKEN | (配置中获取) | Gateway 认证令牌 |
-
-## 与传统方案对比
-
-| 特性 | 传统方案 | OpenClaw Team |
-|------|----------|---------------|
-| 密码存储 | 服务器存 hash | 服务器不存任何密码数据 |
-| 数据隔离 | 管理员可查看 | 只有用户自己能解密 |
-| 会话管理 | Token 有过期时间 | 设备绑定，永不过期 |
-| 数据恢复 | 管理员可重置 | 密码丢失 = 数据丢失 |
-
-## 技术栈
-
-- Flask + Gunicorn
-- Cryptography (Fernet/AES-256)
-- 零知识认证架构
-- PBKDF2 密钥派生
 
 ## 项目结构
 
-```
+```text
 openclaw-team/
+├── README.md
+├── start.sh
 ├── scripts/
-│   ├── main.py              # 主服务器文件（推荐使用）
-│   ├── index.html           # 前端界面
-│   ├── upload.py            # 文件上传模块
-│   └── team_chat_server.py  # 独立完整版（备用）
-├── requirements.txt         # Python 依赖
-├── start.sh                # 一键启动脚本
-├── .env.example            # 环境变量示例
-├── .gitignore              # Git 忽略配置
-├── README.md               # 项目文档
-├── SKILL.md                # Skill 描述
-└── license.txt             # 许可证
+│   ├── main.py
+│   ├── index.html
+│   ├── upload.py
+│   ├── requirements.txt
+│   └── team_chat_server.py
+├── .env.example
+├── .gitignore
+├── SKILL.md
+└── license.txt
 ```
 
-## 文件说明
+## 当前推荐用途
 
-- **main.py**: 模块化主服务器，使用独立的 HTML 文件和 upload 模块
-- **index.html**: 白色极简风格前端界面
-- **upload.py**: 文件上传功能模块
-- **team_chat_server.py**: 独立完整版服务器（所有代码在一个文件，备用）
+适合：
+- 本地测试
+- 局域网多人试用
+- 团队内部原型验证
+- 验证“统一人格 + 每用户独立文件存储”的交互模型
 
-## 许可证
+不适合：
+- 公网直接暴露
+- 高安全要求生产环境
+- 对“强隔离、多租户安全边界”有严格要求的场景
 
-Apache License 2.0
+## 最近更新
 
----
+当前版本已补充：
+- 网关配置改为优先从环境变量 / `scripts/.env` 读取
+- 聊天调试日志
+- 长期记忆读写入口
+- 历史记录裁剪为最近 50 轮
+- 前端更好的消息格式渲染
+- 防跨用户泄露的 system prompt
 
-# OpenClaw Team - Zero-Knowledge Team Collaboration Server
+## 后续建议方向
 
-## Background
+如果要继续演进，建议优先做这两件事：
 
-Designed for deploying a single OpenClaw instance that multiple users can share—each user gets isolated encrypted storage, achieving true data separation.
-
-## Features
-
-- 🔐 **Zero-knowledge**: Server never stores any password data; user data can only be decrypted with correct password
-- 👥 **Data isolation**: Each user has independent folder with AES-256 encryption, password is the key
-- 📱 **Cross-device**: Access via LAN IP from desktop or mobile
-- 🛡️ **End-to-end encrypted**: All user data (history, memory, soul) encrypted in transit and at rest
-- 🔑 **Device-based login**: No session tokens; login state stored in browser localStorage
-- ⚡ **Lightweight**: No database needed; runs with a single Python script
-
-## Use Cases
-
-- **Family sharing**: Family shares one OpenClaw instance, each with independent conversation history
-- **Team collaboration**: Small teams share AI assistant with complete data isolation per user
-- **Privacy-sensitive**: High security requirements—neither admins nor server operators can see any user data
-
-## Technical Highlights
-
-### 1. Zero-Knowledge Architecture
-
-Traditional approach: Server stores password hash, compares on login.
-
-**This solution**:
-- Server stores **nothing** password-related
-- Registration: Encrypt `credential.enc` (contains user identity proof) using password
-- Login: Server attempts to decrypt `credential.enc` with provided password
-- Decrypt success → password verified; decrypt fail → login failed
-
-Even if server is compromised and database stolen, attackers cannot recover any passwords or decrypt user data.
-
-### 2. Password is the Key
-
-User's password is used for:
-- Authentication (decrypt credential.enc)
-- Data encryption (encrypt history.enc, memory.enc, soul.enc)
-
-Password lost = data permanently lost. This is a feature, not a bug—ensures **only the user** can access their own data.
-
-### 3. Data Isolation
-
-Each folder can only be decrypted with corresponding password—users cannot read each other's files.
-
-### 4. First Principle Restriction
-
-Security comment embedded in code:
-```python
-# Security principle: Never delete any folder in alldata except user's own folder
-```
-
-AI assistant will not execute any command to delete other users' data.
-
-## Quick Start
-
-```bash
-# 1. Install dependencies
-pip install flask flask-cors cryptography requests gunicorn
-
-# 2. Start server
-gunicorn -w 4 -b 0.0.0.0:8888 team_chat_server:app
-```
-
-Access at: `http://<your-ip>:8888`
-
-Default invite code: `OPENCLAW2026`
-
-## Custom Invite Code
-
-```bash
-# Option 1: Environment variable
-INVITE_CODE=your_code gunicorn -w 4 -b 0.0.0.0:8888 team_chat_server:app
-
-# Option 2: Edit INVITE_CODE constant in the script
-```
-
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| PORT | 8888 | Server port |
-| INVITE_CODE | OPENCLAW2026 | Invite code for registration |
-| DATA_DIR | ~/Desktop/alldata | Data storage directory |
-| GATEWAY_URL | http://127.0.0.1:18789 | OpenClaw Gateway API |
-| GATEWAY_TOKEN | (from config) | Gateway auth token |
-
-## Comparison with Traditional Solutions
-
-| Feature | Traditional | OpenClaw Team |
-|---------|-------------|---------------|
-| Password storage | Server stores hash | Server stores nothing password-related |
-| Data isolation | Admins can view | Only user can decrypt |
-| Session management | Token expires | Device-based, never expires |
-| Data recovery | Admin can reset | Password lost = data lost |
-
-## Tech Stack
-
-- Flask + Gunicorn
-- Cryptography (Fernet/AES-256)
-- Zero-knowledge architecture
-- PBKDF2 key derivation
+1. 让每个网页用户绑定独立的 OpenClaw 后端 session
+2. 进一步收紧用户名校验、路径安全、上传安全与凭证管理
 
 ## License
 
