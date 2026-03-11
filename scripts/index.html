@@ -22,8 +22,8 @@
             justify-content: center;
             background: #fff;
         }
-        .screen { display: none; }
-        .screen.active { display: flex; }
+        .screen { display: none !important; }
+        .screen.active { display: flex !important; }
         
         /* 登录/注册页面 - 白色极简 */
         .login-screen, .auth-screen { 
@@ -34,6 +34,8 @@
             background: #fff;
             border: 1px solid #e5e5e5;
             border-radius: 16px;
+            flex-direction: column;
+            align-items: center;
         }
         .login-screen h1, .auth-screen h1 { 
             margin-bottom: 8px;
@@ -93,6 +95,11 @@
         .login-screen button:active, .auth-screen button:active { 
             transform: translateY(0);
         }
+        .login-screen button:disabled, .auth-screen button:disabled {
+            background: #999;
+            cursor: not-allowed;
+            transform: none;
+        }
         .login-screen button.secondary, .auth-screen button.secondary { 
             background: transparent;
             color: #666;
@@ -129,18 +136,45 @@
             background: #fff;
         }
         .chat-header {
-            padding: 16px 20px;
+            padding: 12px 20px;
             background: #fff;
             border-bottom: 1px solid #f0f0f0;
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: space-between;
         }
         .brand-name {
             font-size: 14px;
             font-weight: 600;
             color: #000;
             letter-spacing: 0.5px;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .user-info {
+            font-size: 13px;
+            color: #666;
+        }
+        .user-info strong {
+            color: #000;
+        }
+        .logout-btn {
+            padding: 6px 14px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            background: #fff;
+            color: #666;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .logout-btn:hover {
+            background: #f5f5f5;
+            color: #000;
+            border-color: #d5d5d5;
         }
         .chat-messages { 
             flex: 1;
@@ -164,6 +198,8 @@
             padding: 12px 16px;
             border-radius: 16px;
             word-wrap: break-word;
+            word-break: break-word;
+            white-space: pre-wrap;
             line-height: 1.6;
             font-size: 15px;
             animation: slideIn 0.2s ease;
@@ -192,6 +228,15 @@
             background: #f5f5f5;
             color: #000;
             border-radius: 16px 16px 16px 4px;
+        }
+        .message-time {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            opacity: 0.8;
+        }
+        .message.user .message-time {
+            color: rgba(255,255,255,0.7);
         }
         
         /* 输入区域 - 白色悬浮 */
@@ -309,7 +354,7 @@
         <!-- 邀请码页面 -->
         <div id="inviteScreen" class="screen auth-screen">
             <h2>注册新账号</h2>
-            <input type="text" id="inviteCode" placeholder="请输入邀请码">
+            <input type="text" id="inviteCode" placeholder="请输入邀请码" onkeypress="if(event.key==='Enter')checkInvite()">
             <button onclick="checkInvite()">验证</button>
             <button class="secondary" onclick="showAuth()">返回</button>
             <p class="tips">需要邀请码才能注册</p>
@@ -319,8 +364,8 @@
         <!-- 登录页面 -->
         <div id="loginScreen" class="screen login-screen">
             <h2>👋 欢迎回来</h2>
-            <input type="text" id="loginUsername" placeholder="用户名">
-            <input type="password" id="loginPassword" placeholder="密码">
+            <input type="text" id="loginUsername" placeholder="用户名" onkeypress="if(event.key==='Enter')document.getElementById('loginPassword').focus()">
+            <input type="password" id="loginPassword" placeholder="密码" onkeypress="if(event.key==='Enter')login()">
             <button onclick="login()">登录</button>
             <button class="secondary" onclick="showAuth()">返回</button>
             <p id="loginError" class="error"></p>
@@ -329,11 +374,12 @@
         <!-- 注册页面 -->
         <div id="registerScreen" class="screen login-screen">
             <h2>🚀 创建账号</h2>
-            <input type="text" id="regUsername" placeholder="用户名 (最长15字符)">
-            <input type="password" id="regPassword" placeholder="设置密码">
-            <input type="password" id="regPassword2" placeholder="确认密码">
+            <input type="text" id="regUsername" placeholder="用户名 (最长15字符)" onkeypress="if(event.key==='Enter')document.getElementById('regPassword').focus()">
+            <input type="password" id="regPassword" placeholder="设置密码" onkeypress="if(event.key==='Enter')document.getElementById('regPassword2').focus()">
+            <input type="password" id="regPassword2" placeholder="确认密码" onkeypress="if(event.key==='Enter')register()">
             <button onclick="register()">注册</button>
             <button class="secondary" onclick="showAuth()">返回</button>
+            <p class="tips" style="color: #ff9500; margin-top: 16px;">⚠️ 密码即密钥，无法找回，请牢记！</p>
             <p id="regError" class="error"></p>
         </div>
         
@@ -341,6 +387,10 @@
         <div id="chatScreen" class="screen chat-screen">
             <div class="chat-header">
                 <span class="brand-name brand-title">OPENCLAW-TEAM</span>
+                <div class="header-right">
+                    <span class="user-info">当前用户: <strong id="currentUserDisplay">-</strong></span>
+                    <button class="logout-btn" onclick="logout()">退出</button>
+                </div>
             </div>
             <div class="chat-messages" id="chatMessages">
             </div>
@@ -357,6 +407,7 @@
     <script>
         let currentUser = null;
         let brandName = 'OPENCLAW-TEAM'; // 默认品牌名称
+        let isSending = false; // 防止重复发送
         
         // 加载配置
         async function loadConfig() {
@@ -418,36 +469,51 @@
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById('chatScreen').classList.add('active');
             document.getElementById('chatMessages').innerHTML = '';
+            document.getElementById('currentUserDisplay').textContent = username;
+            loadHistory(); // 加载历史记录
         }
         
-        function checkInvite() {
+        async function checkInvite() {
             const code = document.getElementById('inviteCode').value;
+            const btn = event.target;
+            const errorEl = document.getElementById('inviteError');
+            
             if (!code) {
-                document.getElementById('inviteError').textContent = '请输入邀请码';
+                errorEl.textContent = '请输入邀请码';
                 return;
             }
             
-            fetch('/api/check_invite', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({code})
-            })
-            .then(r => r.json())
-            .then(data => {
+            btn.disabled = true;
+            btn.textContent = '验证中...';
+            errorEl.textContent = '';
+            
+            try {
+                const r = await fetch('/api/check_invite', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code})
+                });
+                const data = await r.json();
                 if (data.valid) {
                     showRegister();
                 } else {
-                    document.getElementById('inviteError').textContent = '邀请码错误';
+                    errorEl.textContent = '邀请码错误';
                 }
-            });
+            } catch (e) {
+                errorEl.textContent = '网络错误，请重试';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '验证';
+            }
         }
         
-        function register() {
+        async function register() {
             const username = document.getElementById('regUsername').value;
             const password = document.getElementById('regPassword').value;
             const password2 = document.getElementById('regPassword2').value;
             const errorEl = document.getElementById('regError');
             const inviteCode = document.getElementById('inviteCode').value;
+            const btn = document.querySelector('#registerScreen button:not(.secondary)');
             
             errorEl.textContent = '';
             
@@ -468,13 +534,16 @@
                 return;
             }
             
-            fetch('/api/register', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username, password, invite_code: inviteCode})
-            })
-            .then(r => r.json())
-            .then(data => {
+            btn.disabled = true;
+            btn.textContent = '注册中...';
+            
+            try {
+                const r = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password, invite_code: inviteCode})
+                });
+                const data = await r.json();
                 if (data.success) {
                     currentUser = {username: data.username, password: password};
                     localStorage.setItem('openclaw_user', JSON.stringify(currentUser));
@@ -482,23 +551,37 @@
                 } else {
                     errorEl.textContent = data.error || '注册失败';
                 }
-            });
+            } catch (e) {
+                errorEl.textContent = '网络错误，请重试';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '注册';
+            }
         }
         
-        function login() {
+        async function login() {
             const username = document.getElementById('loginUsername').value;
             const password = document.getElementById('loginPassword').value;
             const errorEl = document.getElementById('loginError');
+            const btn = document.querySelector('#loginScreen button:not(.secondary)');
             
             errorEl.textContent = '';
             
-            fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username, password})
-            })
-            .then(r => r.json())
-            .then(data => {
+            if (!username || !password) {
+                errorEl.textContent = '请输入用户名和密码';
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = '登录中...';
+            
+            try {
+                const r = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password})
+                });
+                const data = await r.json();
                 if (data.success) {
                     currentUser = {username: data.username, password: password};
                     localStorage.setItem('openclaw_user', JSON.stringify(currentUser));
@@ -506,7 +589,12 @@
                 } else {
                     errorEl.textContent = data.error || '登录失败';
                 }
-            });
+            } catch (e) {
+                errorEl.textContent = '网络错误，请重试';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '登录';
+            }
         }
         
         function logout() {
@@ -515,10 +603,50 @@
             showAuth();
         }
         
-        function addMessage(type, content) {
+        async function loadHistory() {
+            if (!currentUser) return;
+            
+            try {
+                const r = await fetch('/api/history', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: currentUser.username,
+                        password: currentUser.password
+                    })
+                });
+                const data = await r.json();
+                if (data.success && data.history && data.history.length > 0) {
+                    // 显示历史记录
+                    data.history.forEach(msg => {
+                        addMessage(msg.role, msg.content, msg.timestamp);
+                    });
+                } else {
+                    addMessage('system', '欢迎使用！开始新对话吧~');
+                }
+            } catch (e) {
+                console.error('加载历史失败', e);
+                addMessage('system', '欢迎使用！');
+            }
+        }
+        
+        function addMessage(type, content, timestamp = null) {
             const div = document.createElement('div');
             div.className = 'message ' + type;
-            div.textContent = content;
+            
+            const contentSpan = document.createElement('span');
+            contentSpan.textContent = content;
+            div.appendChild(contentSpan);
+            
+            // 添加时间戳（系统消息除外）
+            if (type !== 'system') {
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'message-time';
+                const time = timestamp ? new Date(timestamp) : new Date();
+                timeDiv.textContent = time.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+                div.appendChild(timeDiv);
+            }
+            
             document.getElementById('chatMessages').appendChild(div);
             document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
         }
@@ -547,10 +675,16 @@
         }
         
         async function sendMessage() {
-            if (!currentUser) return;
+            if (!currentUser || isSending) return;
             
             const input = document.getElementById('chatInput');
+            const sendBtn = document.querySelector('.chat-input button:last-child');
             let content = input.value.trim();
+            
+            // 锁定发送状态
+            isSending = true;
+            sendBtn.disabled = true;
+            sendBtn.textContent = '发送中...';
             
             // 如果有文件，先上传
             if (selectedFile) {
@@ -611,6 +745,11 @@
                 if (e.message !== '登录过期') {
                     addMessage('assistant', '❌ 网络错误: ' + e.message);
                 }
+            })
+            .finally(() => {
+                isSending = false;
+                sendBtn.disabled = false;
+                sendBtn.textContent = '发送';
             });
         }
         
