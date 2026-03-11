@@ -67,6 +67,66 @@ def get_user_dir(username: str) -> str:
     safe_name = username.replace(" ", "_")
     return os.path.join(DATA_DIR, safe_name)
 
+def load_encrypted_json(file_path: str, password: str, default):
+    if not os.path.exists(file_path):
+        return default
+    try:
+        with open(file_path, 'r') as f:
+            content = f.read()
+        if not content:
+            return default
+        return json.loads(decrypt_data(content, password))
+    except Exception:
+        return default
+
+
+def save_encrypted_json(file_path: str, password: str, data):
+    with open(file_path, 'w') as f:
+        f.write(encrypt_data(json.dumps(data, ensure_ascii=False, indent=2), password))
+
+
+def build_memory_system_prompt(memory_items):
+    if not memory_items:
+        return None
+    lines = ["以下是当前用户的长期记忆，只供你在本次回复时参考："]
+    for item in memory_items:
+        if isinstance(item, dict) and item.get('content'):
+            tag = item.get('type', 'memory')
+            lines.append(f"- [{tag}] {item['content']}")
+    return "\n".join(lines)
+
+
+def extract_memory_items(user_message: str, assistant_message: str):
+    items = []
+    text = (user_message or '').strip()
+    if not text:
+        return items
+
+    explicit_markers = ["记住", "记一下", "帮我记住", "请记住", "记在心里"]
+    if any(marker in text for marker in explicit_markers):
+        cleaned = text
+        for marker in explicit_markers:
+            cleaned = cleaned.replace(marker, '')
+        cleaned = cleaned.strip('：:，,。；; ')
+        if cleaned:
+            items.append({"type": "explicit", "content": cleaned, "created": datetime.now().isoformat()})
+
+    auto_prefixes = ["我是", "我叫", "我负责", "我喜欢", "我不喜欢", "我的偏好是", "以后回复我", "以后叫我"]
+    if any(text.startswith(prefix) for prefix in auto_prefixes):
+        items.append({"type": "auto", "content": text, "created": datetime.now().isoformat()})
+
+    return items
+
+
+def merge_memory(memory_items, new_items, limit=200):
+    existing = {item.get('content') for item in memory_items if isinstance(item, dict)}
+    for item in new_items:
+        content = item.get('content') if isinstance(item, dict) else None
+        if content and content not in existing:
+            memory_items.append(item)
+            existing.add(content)
+    return memory_items[-limit:]
+
 # ====== 路由 =====
 @app.route('/')
 def index():
@@ -119,9 +179,8 @@ def register():
         json.dump(config, f, indent=2)
     
     # 创建用户文件
-    for name, content in [("soul.enc", ""), ("memory.enc", ""), ("history.enc", encrypt_data("[]", password))]:
-        with open(os.path.join(user_dir, name), 'w') as f:
-            f.write(content)
+    save_encrypted_json(os.path.join(user_dir, "memory.enc"), password, [])
+    save_encrypted_json(os.path.join(user_dir, "history.enc"), password, [])
     
     print(f"✅ 新用户注册: {username}")
     return jsonify({"success": True, "username": username})
@@ -179,17 +238,8 @@ def get_history():
         return jsonify({"error": "验证失败"}), 401
     
     # 获取历史
-    history = []
     history_file = os.path.join(user_dir, "history.enc")
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, 'r') as f:
-                content = f.read()
-            if content:
-                decrypted = decrypt_data(content, password)
-                history = json.loads(decrypted)
-        except:
-            pass
+    history = load_encrypted_json(history_file, password, [])
     
     return jsonify({"success": True, "history": history})
 
@@ -220,18 +270,17 @@ def chat():
     except:
         return jsonify({"error": "验证失败"}), 401
     
-    # 获取历史
-    history = []
+    # 获取历史和长期记忆
     history_file = os.path.join(user_dir, "history.enc")
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, 'r') as f:
-                decrypted = decrypt_data(f.read(), password)
-            history = json.loads(decrypted)
-        except:
-            pass
+    memory_file = os.path.join(user_dir, "memory.enc")
+    history = load_encrypted_json(history_file, password, [])
+    memory_items = load_encrypted_json(memory_file, password, [])
     
     messages = []
+    memory_prompt = build_memory_system_prompt(memory_items)
+    if memory_prompt:
+        messages.append({"role": "system", "content": memory_prompt})
+
     for msg in history:
         role = msg.get("role")
         content = msg.get("content")
@@ -261,14 +310,18 @@ def chat():
         result = response.json()
         assistant_message = result['choices'][0]['message']['content']
         
-        # 保存历史（带时间戳）
+        # 保存历史（最近 50 轮 = 100 条消息）
         now = datetime.now().isoformat()
         history.append({"role": "user", "content": user_message, "timestamp": now})
         history.append({"role": "assistant", "content": assistant_message, "timestamp": now})
-        history = history[-40:]
-        
-        with open(history_file, 'w') as f:
-            f.write(encrypt_data(json.dumps(history, ensure_ascii=False), password))
+        history = history[-100:]
+        save_encrypted_json(history_file, password, history)
+
+        # 更新长期记忆：用户明确要求记住 + 少量明显长期信息自动记
+        new_memory_items = extract_memory_items(user_message, assistant_message)
+        if new_memory_items:
+            memory_items = merge_memory(memory_items, new_memory_items)
+            save_encrypted_json(memory_file, password, memory_items)
         
         return jsonify({"response": assistant_message})
     except Exception as e:
