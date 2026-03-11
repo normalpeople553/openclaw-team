@@ -16,9 +16,9 @@ import requests
 from cryptography.fernet import Fernet
 
 # ====== 配置 ======
-GATEWAY_URL = "http://127.0.0.1:18789"
-GATEWAY_TOKEN = "9d2a452dbb739cbf940a5794181a280453dda9ed99367b6a"
-PORT = 8888
+GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://127.0.0.1:18789")
+GATEWAY_TOKEN = os.environ.get("GATEWAY_TOKEN", "")
+PORT = int(os.environ.get("PORT", "8888"))
 DATA_DIR = os.path.expanduser("~/Desktop/alldata")
 CREDENTIAL_FILE = "credential.enc"
 INVITE_CODE = os.environ.get("INVITE_CODE", "OPENCLAW2026")  # 邀请码，可通过环境变量自定义
@@ -276,4 +276,6 @@ if __name__ == '__main__':
     print(f"   访问: http://0.0.0.0:{PORT}")
     print(f"   数据目录: {DATA_DIR}")
     print(f"   邀请码: {INVITE_CODE}")
+    print(f"   Gateway URL: {GATEWAY_URL}")
+    print(f"   Gateway Token 已配置: {'是' if bool(GATEWAY_TOKEN) else '否'}")
     app.run(host='0.0.0.0', port=PORT, debug=False)
